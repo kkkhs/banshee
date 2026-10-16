@@ -450,6 +450,56 @@ fn copilot_server_with_local_type_and_shim_means_no_change() {
 }
 
 #[test]
+fn copilot_agent_stop_hook_is_added_in_its_native_shape() {
+    let command = hooks::turn_end_command(GatedAgent::Copilot, Path::new(BANSHEE));
+    let before = r#"{"hooks":{"otherEvent":[{"type":"command","bash":"theirs"}]}}"#;
+    let after = hooks::with_copilot_turn_end(Some(before), &command)
+        .unwrap()
+        .expect("a change");
+    let root: serde_json::Value = serde_json::from_str(&after).unwrap();
+    assert_eq!(root["version"], 1);
+    assert_eq!(root["hooks"]["otherEvent"][0]["bash"], "theirs");
+    assert_eq!(
+        root["hooks"]["agentStop"][0],
+        serde_json::json!({
+            "type": "command",
+            "bash": command,
+            "timeoutSec": 15,
+        })
+    );
+    assert_eq!(
+        hooks::with_copilot_turn_end(Some(&after), &command).unwrap(),
+        None,
+        "a second run changes nothing"
+    );
+}
+
+#[test]
+fn copilot_agent_stop_hook_replaces_an_old_turn_end_command() {
+    let old = hooks::turn_end_command(GatedAgent::Copilot, Path::new("/old/banshee"));
+    let command = hooks::turn_end_command(GatedAgent::Copilot, Path::new(BANSHEE));
+    let before = serde_json::json!({
+        "version": 1,
+        "hooks": {
+            "agentStop": [
+                {"type": "command", "bash": old, "timeoutSec": 30}
+            ]
+        }
+    })
+    .to_string();
+    let after = hooks::with_copilot_turn_end(Some(&before), &command)
+        .unwrap()
+        .expect("a moved banshee rewrites the hook");
+    let root: serde_json::Value = serde_json::from_str(&after).unwrap();
+    assert_eq!(root["hooks"]["agentStop"].as_array().unwrap().len(), 1);
+    assert_eq!(root["hooks"]["agentStop"][0]["bash"], command);
+    assert_eq!(
+        root["hooks"]["agentStop"][0]["timeoutSec"], 30,
+        "the entry keeps the user's timeout"
+    );
+}
+
+#[test]
 fn codex_server_is_added_to_a_missing_file() {
     let after = with_codex_server(None, Path::new(SHIM))
         .unwrap()
@@ -544,13 +594,14 @@ fn the_new_agents_plan_their_own_files_and_need_the_shim() {
     for (agent, file) in [
         (Agent::Cursor, ".cursor/mcp.json"),
         (Agent::Codex, ".codex/config.toml"),
-        (Agent::Copilot, ".copilot/mcp-config.json"),
         (Agent::Antigravity, ".gemini/config/mcp_config.json"),
     ] {
         match &plan(agent, &env).unwrap()[..] {
-            [Change::WriteFile {
-                path, before: None, ..
-            }] => {
+            [
+                Change::WriteFile {
+                    path, before: None, ..
+                },
+            ] => {
                 assert_eq!(path, &home.join(file));
             }
             other => panic!("{agent:?}: {other:?}"),
@@ -565,6 +616,39 @@ fn the_new_agents_plan_their_own_files_and_need_the_shim() {
     ] {
         assert!(plan(agent, &env).is_err(), "{agent:?} must need the shim");
     }
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+#[test]
+fn copilot_plans_its_server_and_agent_stop_hook() {
+    let home = scratch("copilot-hook-plan");
+    let mut env = env_at(&home);
+    found(&mut env, "copilot");
+    let changes = plan(Agent::Copilot, &env).unwrap();
+    let paths: Vec<_> = changes
+        .iter()
+        .map(|change| match change {
+            Change::WriteFile { path, .. } => path.clone(),
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    assert_eq!(
+        paths,
+        vec![
+            home.join(".copilot/mcp-config.json"),
+            home.join(".copilot/hooks/banshee.json")
+        ]
+    );
+    let shown = render(&changes[1]);
+    assert!(shown.contains("agentStop"), "{shown}");
+    assert!(shown.contains("turn-end copilot"), "{shown}");
+    for change in &changes {
+        apply_write(change).unwrap();
+    }
+    assert!(
+        plan(Agent::Copilot, &env).unwrap().is_empty(),
+        "a second run is empty"
+    );
     let _ = std::fs::remove_dir_all(&home);
 }
 
@@ -1273,6 +1357,7 @@ fn the_turn_end_command_is_recognised_for_its_own_agent_only() {
         for agent in [
             GatedAgent::Claude,
             GatedAgent::Codex,
+            GatedAgent::Copilot,
             GatedAgent::Antigravity,
         ] {
             let command = hooks::turn_end_command(agent, Path::new(banshee));

@@ -358,9 +358,16 @@ pub fn plan(agent: Agent, env: &Env) -> Result<Vec<Change>, BansheeError> {
         }
         Agent::Copilot => {
             let shim = require_shim(env)?;
-            rewrite(env.home.join(".copilot/mcp-config.json"), |before| {
+            let gate = crate::turn_end::GatedAgent::Copilot;
+            let command = hooks::turn_end_command(gate, &env.banshee);
+            let mut changes = rewrite(env.home.join(".copilot/mcp-config.json"), |before| {
                 with_copilot_server(before, shim)
-            })
+            })?;
+            changes.extend(rewrite(
+                env.home.join(".copilot/hooks/banshee.json"),
+                |before| hooks::with_copilot_turn_end(before, &command),
+            )?);
+            Ok(changes)
         }
         Agent::Cursor => {
             let shim = require_shim(env)?;

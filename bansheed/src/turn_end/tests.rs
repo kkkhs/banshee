@@ -11,6 +11,10 @@ const TABLE: &str = "    1     0 /sbin/launchd
 53617 90683 codex
 53674 53617 /Users/someone/Banshee 0.15/banshee-mcp-shim
 54185 53617 /Applications/Banshee.app/Contents/MacOS/banshee turn-end codex
+55000 90683 copilot
+55011 55000 /Users/someone/Banshee 0.15/banshee-mcp-shim
+55022 55000 /bin/sh -c \"$0\" turn-end copilot || exit 0 /Applications/Banshee.app/Contents/MacOS/banshee
+55023 55022 /Applications/Banshee.app/Contents/MacOS/banshee turn-end copilot
 54265 90683 agy
 54293 54265 banshee-mcp-shi
 54358 54265 /usr/local/bin/banshee turn-end antigravity
@@ -38,6 +42,11 @@ fn the_agent_is_the_nearest_ancestor_that_started_a_shim() {
         Some(53617),
         "a shim path with a space"
     );
+    assert_eq!(
+        agent_pid(&rows, 55023),
+        Some(55000),
+        "the hook and shim share Copilot as their parent"
+    );
 }
 
 #[test]
@@ -52,7 +61,7 @@ fn a_process_outside_the_table_has_no_agent() {
 
 #[test]
 fn a_stop_is_not_a_plain_end_when_its_payload_says_so() {
-    for agent in [GatedAgent::Claude, GatedAgent::Codex] {
+    for agent in [GatedAgent::Claude, GatedAgent::Codex, GatedAgent::Copilot] {
         assert!(not_a_plain_end(
             agent,
             &serde_json::json!({"stop_hook_active": true})
@@ -92,6 +101,10 @@ fn each_agent_hears_its_own_answer() {
         "block"
     );
     assert_eq!(
+        parsed(GatedAgent::Copilot, Speak).unwrap()["decision"],
+        "block"
+    );
+    assert_eq!(
         parsed(GatedAgent::Antigravity, Speak).unwrap()["decision"],
         "continue"
     );
@@ -119,6 +132,7 @@ fn only_codex_is_told_where_its_hidden_tools_are() {
     };
     assert!(reason(GatedAgent::Codex).contains("ALL_TOOLS"));
     assert!(!reason(GatedAgent::Claude).contains("ALL_TOOLS"));
+    assert!(!reason(GatedAgent::Copilot).contains("ALL_TOOLS"));
     assert!(reason(GatedAgent::Claude).contains("speak_status"));
 }
 
@@ -210,6 +224,10 @@ async fn a_repeated_stop_tells_the_daemon_and_passes() {
         ),
         (
             GatedAgent::Codex,
+            serde_json::json!({"stop_hook_active": true}),
+        ),
+        (
+            GatedAgent::Copilot,
             serde_json::json!({"stop_hook_active": true}),
         ),
         (

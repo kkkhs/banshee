@@ -143,3 +143,59 @@ pub(super) fn with_antigravity_turn_end(
     }
     Ok(Some(pretty_json(&root)?))
 }
+
+/// `before` with Copilot's agentStop hook holding `command`.
+/// `None` when it already does.
+pub(super) fn with_copilot_turn_end(
+    before: Option<&str>,
+    command: &str,
+) -> Result<Option<String>, BansheeError> {
+    const FILE: &str = "hooks.json";
+    let mut root: serde_json::Value = parse_settings(before, FILE)?;
+    let root = root
+        .as_object_mut()
+        .ok_or_else(|| malformed(FILE, "is not a JSON object"))?;
+    root.entry("version")
+        .or_insert_with(|| serde_json::json!(1));
+    let agent_stop = root
+        .entry("hooks")
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()
+        .ok_or_else(|| malformed(FILE, "hooks is not an object"))?
+        .entry("agentStop")
+        .or_insert_with(|| serde_json::json!([]))
+        .as_array_mut()
+        .ok_or_else(|| malformed(FILE, "hooks.agentStop is not a list"))?;
+    let existing = agent_stop
+        .iter_mut()
+        .filter_map(serde_json::Value::as_object_mut)
+        .find(|handler| {
+            handler
+                .get("bash")
+                .and_then(serde_json::Value::as_str)
+                .or_else(|| handler.get("command").and_then(serde_json::Value::as_str))
+                .is_some_and(|c| is_turn_end_command(c, GatedAgent::Copilot))
+        });
+    match existing {
+        Some(handler)
+            if handler.get("type") == Some(&serde_json::json!("command"))
+                && handler.get("bash") == Some(&serde_json::json!(command)) =>
+        {
+            return Ok(None);
+        }
+        Some(handler) => {
+            handler.remove("command");
+            handler.insert("type".into(), serde_json::json!("command"));
+            handler.insert("bash".into(), serde_json::json!(command));
+            handler
+                .entry("timeoutSec")
+                .or_insert_with(|| serde_json::json!(15));
+        }
+        None => agent_stop.push(serde_json::json!({
+            "type": "command",
+            "bash": command,
+            "timeoutSec": 15,
+        })),
+    }
+    Ok(Some(pretty_json(&serde_json::Value::Object(root.clone()))?))
+}

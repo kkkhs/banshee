@@ -25,6 +25,7 @@ const HIDDEN_TOOLS: &str = " If Banshee's tools are not in your tool list, they 
 pub enum GatedAgent {
     Claude,
     Codex,
+    Copilot,
     Antigravity,
 }
 
@@ -34,6 +35,7 @@ impl GatedAgent {
         match self {
             GatedAgent::Claude => "claude",
             GatedAgent::Codex => "codex",
+            GatedAgent::Copilot => "copilot",
             GatedAgent::Antigravity => "antigravity",
         }
     }
@@ -90,7 +92,9 @@ pub fn agent_pid(rows: &[ProcessRow], me: u32) -> Option<u32> {
 
 pub fn not_a_plain_end(agent: GatedAgent, payload: &serde_json::Value) -> bool {
     match agent {
-        GatedAgent::Claude | GatedAgent::Codex => payload["stop_hook_active"] == true,
+        GatedAgent::Claude | GatedAgent::Codex | GatedAgent::Copilot => {
+            payload["stop_hook_active"] == true
+        }
         // `terminationReason` is `NO_TOOL_CALL` on agy's plain end, whatever its docs say.
         GatedAgent::Antigravity => payload["error"]
             .as_str()
@@ -106,6 +110,7 @@ pub fn answer(agent: GatedAgent, verdict: TurnVerdict) -> Option<String> {
     let (decision, reason) = match agent {
         GatedAgent::Claude => ("block", REMINDER.to_string()),
         GatedAgent::Codex => ("block", format!("{REMINDER}{HIDDEN_TOOLS}")),
+        GatedAgent::Copilot => ("block", REMINDER.to_string()),
         GatedAgent::Antigravity => ("continue", REMINDER.to_string()),
     };
     Some(serde_json::json!({"decision": decision, "reason": reason}).to_string())

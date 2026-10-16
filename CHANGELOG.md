@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`banshee connect copilot` now installs the agent-stop hook too.** Copilot
+  gets `~/.copilot/hooks/banshee.json`, so a silent turn can be sent back once
+  to speak, like Claude Code and Codex.
 - **A remote speaker at speed 1.0 leaves `speed` out of the request.** 1.0 is
   the API's default, so OpenAI hears the same thing. Some servers refuse any
   request that names a speed their model can't apply, and used to refuse every
