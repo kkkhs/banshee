@@ -102,6 +102,10 @@ pub fn not_a_plain_end(agent: GatedAgent, payload: &serde_json::Value) -> bool {
     }
 }
 
+fn ignored_stop(agent: GatedAgent, payload: &serde_json::Value) -> bool {
+    agent == GatedAgent::Copilot && payload.get("parentAgentId").is_some()
+}
+
 /// What the agent's hook prints for this verdict. `None` prints nothing.
 pub fn answer(agent: GatedAgent, verdict: TurnVerdict) -> Option<String> {
     if verdict == TurnVerdict::Pass {
@@ -140,6 +144,9 @@ pub async fn verdict(
     ask: impl AsyncFn(u32, bool) -> Result<serde_json::Value, BansheeError>,
     wait: Duration,
 ) -> TurnVerdict {
+    if ignored_stop(agent, payload) {
+        return TurnVerdict::Pass;
+    }
     let Some(agent_pid) = agent_pid else {
         return TurnVerdict::Pass;
     };

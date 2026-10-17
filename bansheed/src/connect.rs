@@ -491,6 +491,21 @@ fn with_mcp_server(
     file: &str,
     shim: &Path,
 ) -> Result<Option<String>, BansheeError> {
+    with_mcp_server_shape(config, file, shim, McpServerShape::Plain)
+}
+
+#[derive(Clone, Copy)]
+enum McpServerShape {
+    Plain,
+    CopilotLocal,
+}
+
+fn with_mcp_server_shape(
+    config: Option<&str>,
+    file: &str,
+    shim: &Path,
+    shape: McpServerShape,
+) -> Result<Option<String>, BansheeError> {
     let mut root: serde_json::Value = match config {
         Some(text) => json5::from_str(text)
             .map_err(|error| malformed(file, &format!("could not be read: {error}")))?,
@@ -508,8 +523,15 @@ fn with_mcp_server(
         .as_object_mut()
         .ok_or_else(|| malformed(file, "mcpServers.banshee is not an object"))?;
     let command = entry.get("command").and_then(serde_json::Value::as_str);
-    if reaches_shim(command, shim) {
+    let type_ok = match shape {
+        McpServerShape::Plain => true,
+        McpServerShape::CopilotLocal => entry.get("type") == Some(&serde_json::json!("local")),
+    };
+    if type_ok && reaches_shim(command, shim) {
         return Ok(None);
+    }
+    if matches!(shape, McpServerShape::CopilotLocal) {
+        entry.insert("type".into(), serde_json::json!("local"));
     }
     entry.insert(
         "command".into(),
@@ -519,33 +541,12 @@ fn with_mcp_server(
 }
 
 fn with_copilot_server(config: Option<&str>, shim: &Path) -> Result<Option<String>, BansheeError> {
-    let mut root: serde_json::Value = match config {
-        Some(text) => json5::from_str(text).map_err(|error| {
-            malformed("mcp-config.json", &format!("could not be read: {error}"))
-        })?,
-        None => serde_json::json!({}),
-    };
-    let entry = root
-        .as_object_mut()
-        .ok_or_else(|| malformed("mcp-config.json", "is not a JSON object"))?
-        .entry("mcpServers")
-        .or_insert_with(|| serde_json::json!({}))
-        .as_object_mut()
-        .ok_or_else(|| malformed("mcp-config.json", "mcpServers is not an object"))?
-        .entry("banshee")
-        .or_insert_with(|| serde_json::json!({}))
-        .as_object_mut()
-        .ok_or_else(|| malformed("mcp-config.json", "mcpServers.banshee is not an object"))?;
-    let command = entry.get("command").and_then(serde_json::Value::as_str);
-    if entry.get("type") == Some(&serde_json::json!("local")) && reaches_shim(command, shim) {
-        return Ok(None);
-    }
-    entry.insert("type".into(), serde_json::json!("local"));
-    entry.insert(
-        "command".into(),
-        serde_json::json!(shim.display().to_string()),
-    );
-    Ok(Some(pretty_json(&root)?))
+    with_mcp_server_shape(
+        config,
+        "mcp-config.json",
+        shim,
+        McpServerShape::CopilotLocal,
+    )
 }
 
 // toml_edit keeps the user's comments

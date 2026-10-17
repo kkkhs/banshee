@@ -150,7 +150,7 @@ pub(super) fn with_copilot_turn_end(
     before: Option<&str>,
     command: &str,
 ) -> Result<Option<String>, BansheeError> {
-    const FILE: &str = "hooks.json";
+    const FILE: &str = "banshee.json";
     let mut root: serde_json::Value = parse_settings(before, FILE)?;
     let root = root
         .as_object_mut()

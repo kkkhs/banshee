@@ -111,6 +111,7 @@ fn each_agent_hears_its_own_answer() {
     for agent in [
         GatedAgent::Claude,
         GatedAgent::Codex,
+        GatedAgent::Copilot,
         GatedAgent::Antigravity,
     ] {
         assert_eq!(
@@ -119,6 +120,40 @@ fn each_agent_hears_its_own_answer() {
             "{agent:?}: a pass prints nothing"
         );
     }
+}
+
+#[tokio::test]
+async fn a_copilot_subagent_stop_is_ignored() {
+    let asked = std::sync::Mutex::new(Vec::new());
+    let speaking = async |agent_pid: u32, repeat: bool| {
+        asked.lock().unwrap().push((agent_pid, repeat));
+        Ok(serde_json::json!({"verdict": "speak"}))
+    };
+    let subagent = serde_json::json!({
+        "sessionId": "call_Xxxy",
+        "stopReason": "end_turn",
+        "stop_hook_active": false,
+        "agentId": "call_Xxxy",
+        "agentType": "search-subagent",
+        "parentAgentId": "63cace39"
+    });
+
+    assert_eq!(
+        verdict(
+            GatedAgent::Copilot,
+            &subagent,
+            Some(1),
+            speaking,
+            DAEMON_WAIT
+        )
+        .await,
+        Pass
+    );
+    assert_eq!(
+        *asked.lock().unwrap(),
+        [],
+        "subagent stops must not consume the main turn's one block"
+    );
 }
 
 #[test]

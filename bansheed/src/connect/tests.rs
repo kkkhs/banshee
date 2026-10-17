@@ -500,6 +500,14 @@ fn copilot_agent_stop_hook_replaces_an_old_turn_end_command() {
 }
 
 #[test]
+fn copilot_agent_stop_errors_name_the_hook_file() {
+    let command = hooks::turn_end_command(GatedAgent::Copilot, Path::new(BANSHEE));
+    let error = hooks::with_copilot_turn_end(Some("{ not json"), &command)
+        .expect_err("bad copilot hooks json");
+    assert!(error.to_string().starts_with("banshee.json "), "{error}");
+}
+
+#[test]
 fn codex_server_is_added_to_a_missing_file() {
     let after = with_codex_server(None, Path::new(SHIM))
         .unwrap()
@@ -593,7 +601,6 @@ fn the_new_agents_plan_their_own_files_and_need_the_shim() {
     found(&mut env, "agy");
     for (agent, file) in [
         (Agent::Cursor, ".cursor/mcp.json"),
-        (Agent::Codex, ".codex/config.toml"),
         (Agent::Antigravity, ".gemini/config/mcp_config.json"),
     ] {
         match &plan(agent, &env).unwrap()[..] {
@@ -606,6 +613,24 @@ fn the_new_agents_plan_their_own_files_and_need_the_shim() {
             }
             other => panic!("{agent:?}: {other:?}"),
         }
+    }
+    match &plan(Agent::Codex, &env).unwrap()[..] {
+        [
+            Change::WriteFile {
+                path: config,
+                before: None,
+                ..
+            },
+            Change::WriteFile {
+                path: hooks,
+                before: None,
+                ..
+            },
+        ] => {
+            assert_eq!(config, &home.join(".codex/config.toml"));
+            assert_eq!(hooks, &home.join(".codex/hooks.json"));
+        }
+        other => panic!("Codex: {other:?}"),
     }
     env.shim = None;
     for agent in [
